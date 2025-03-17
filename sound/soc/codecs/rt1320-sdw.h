@@ -24,6 +24,8 @@
 #define RT1320_HIFI_VER_2 0x3fe2e002
 #define RT1320_HIFI_VER_3 0x3fe2e003
 
+#define RT1320_AFX0_LOAD_ADDR 0x3fc2ab80
+#define RT1320_AFX1_LOAD_ADDR 0x3fc2b780
 /* RT1320 SDCA Control - function number */
 #define FUNC_NUM_AMP 0x04
 #define FUNC_NUM_MIC 0x02

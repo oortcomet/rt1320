@@ -16,6 +16,7 @@
 #include <linux/regmap.h>
 #include <linux/dmi.h>
 #include <linux/firmware.h>
+#include <linux/spi/spi.h>
 #include <linux/i2c.h>
 #include <sound/core.h>
 #include <sound/pcm.h>
@@ -25,10 +26,9 @@
 #include <sound/initval.h>
 #include <sound/tlv.h>
 #include "rt1320.h"
-#include "rt1320-spi.h"
 #include "rt1320-sdw.h"
+#include "rt1320-spi.h"
 
-#define SPI_CTRL
 
 static const struct reg_sequence vc_init_list[] = {
 	//IC version VAC
@@ -311,6 +311,7 @@ static bool rt1320_readable_register(struct device *dev, unsigned int reg)
 	case 0x0000c085:
 	case 0x0000c086:
 	case 0x0000c400 ... 0x0000c40b:
+	case 0x0000c560:
 	case 0x0000c570:
 	case 0x0000c58c:
 	case 0x0000c58d:
@@ -450,6 +451,7 @@ static bool rt1320_volatile_register(struct device *dev, unsigned int reg)
 	// case 0x0000c085:
 	// case 0x0000c086:
 	case 0x0000c400 ... 0x0000c40b:
+	case 0x0000c560:
 	// case 0x0000c570:
 	// case 0x0000c58c:
 	// case 0x0000c58d:
@@ -609,6 +611,14 @@ static int rt1320_vc_preset(struct rt1320_priv *rt1320)
 		regmap_write(rt1320->regmap, reg, val);
 		if (delay)
 			usleep_range(delay, delay + 1000);
+#if 0
+		if ((reg == 0xc081) && (val == 0xfe)) {
+			// delay 1ms
+			usleep_range(1000, 1500);
+			// load AFX0/1
+			rt1320_afx_load(rt1320);
+		}
+#endif
 	}
 
 	return 0;
@@ -653,6 +663,90 @@ static const char * const rt1320_dac_data_path[] = {
 static SOC_ENUM_SINGLE_DECL(rt1320_dac_data_enum, SND_SOC_NOPM,
 	0, rt1320_dac_data_path);
 
+static void rt1320_param_write(struct rt1320_priv *rt1320,
+	unsigned int start_addr, const char *buf, unsigned int buf_size)
+{
+	unsigned int i;
+
+	printk("%s, start\n", __func__);
+	for (i = 0; i < buf_size; i++) {
+		regmap_write(rt1320->regmap, start_addr, buf[i]);
+		start_addr++;
+	}
+	printk("%s, done\n", __func__);
+}
+
+// static int rt1320_afx_load(struct rt1320_priv *rt1320)
+int rt1320_afx_load(struct rt1320_priv *rt1320)
+{
+	char afx0_name[] = "realtek/rt1320/AFX0_Ram.bin";
+	char afx1_name[] = "realtek/rt1320/AFX1_Ram.bin";
+	const struct firmware *fw0 = NULL, *fw1 = NULL;
+	struct firmware fmw;
+	int ret;
+
+	// afx0
+	ret = request_firmware(&fw0, afx0_name, rt1320->component->dev);
+	if (ret) {
+		dev_err(rt1320->component->dev, "%s: Request firmware %s failed\n",
+			__func__, afx0_name);
+		goto out;
+	}
+
+	if (!fw0->size) {
+		dev_err(rt1320->component->dev, "%s: file read error: size = %lu\n",
+			__func__, (unsigned long)fw0->size);
+		ret = -EINVAL;
+		goto out;
+	}
+	fmw.size = fw0->size;
+	fmw.data = fw0->data;
+	printk("%s, afx0 size=%zu, data[0]=0x%x\n", __func__, fmw.size, fmw.data[0]);
+
+	rt1320_param_write(rt1320, RT1320_AFX0_LOAD_ADDR, fmw.data, fmw.size);
+
+#ifdef RT1320_CHECK_DSP_FW
+	if (rt1320_fw_cmp(RT1320_AFX0_LOAD_ADDR, fmw.data, fmw.size))
+		pr_err("%s: RT1320_AFX0_LOAD_ADDR update fail!\n", __func__);
+	else
+		pr_err("%s: RT1320_AFX0_LOAD_ADDR update success!\n", __func__);
+#endif
+
+	// afx1
+	ret = request_firmware(&fw1, afx1_name, rt1320->component->dev);
+	if (ret) {
+		dev_err(rt1320->component->dev, "%s: Request firmware %s failed\n",
+			__func__, afx1_name);
+		goto out;
+	}
+
+	if (!fw1->size) {
+		dev_err(rt1320->component->dev, "%s: file read error: size = %lu\n",
+			__func__, (unsigned long)fw1->size);
+		ret = -EINVAL;
+		goto out;
+	}
+	fmw.size = fw1->size;
+	fmw.data = fw1->data;
+	printk("%s, afx1 size=%zu, data[4]=0x%x\n", __func__, fmw.size, fmw.data[4]);
+
+	rt1320_param_write(rt1320, RT1320_AFX1_LOAD_ADDR, fmw.data, fmw.size);
+
+#ifdef RT1320_CHECK_DSP_FW
+	if (rt1320_fw_cmp(RT1320_AFX1_LOAD_ADDR, fmw.data, fmw.size))
+		pr_err("%s: RT1320_AFX1_LOAD_ADDR update fail!\n", __func__);
+	else
+		pr_err("%s: RT1320_AFX1_LOAD_ADDR update success!\n", __func__);
+#endif
+
+out:
+	if (fw0)
+		release_firmware(fw0);
+	if (fw1)
+		release_firmware(fw1);
+
+	return ret;
+}
 
 static int rt1320_dsp_path_get(struct snd_kcontrol *kcontrol,
 	struct snd_ctl_elem_value *ucontrol)
@@ -696,7 +790,7 @@ static int rt1320_dsp_path_put(struct snd_kcontrol *kcontrol,
 	} else {
 		regmap_update_bits(rt1320->regmap, RT1320_CAE_DATA_PATH,
 			RT1320_CAE_POST_R_SEL_MASK | RT1320_CAE_POST_L_SEL_MASK | RT1320_CAE_WDATA_SEL_MASK,
-			RT1320_CAE_POST_R_SEL_T7 | RT1320_CAE_POST_L_SEL_T3 | RT1320_CAE_WDATA_SEL_OUTB1);
+			RT1320_CAE_POST_R_SEL_T7 | RT1320_CAE_POST_L_SEL_T3 | RT1320_CAE_WDATA_SEL_OUTB0);
 		regmap_update_bits(rt1320->regmap, RT1320_DA_FILTER_DATA,
 			RT1320_DA_FILTER_SEL_MASK, RT1320_DA_FILTER_SEL_OUTB1);
 		rt1320->bypass_dsp = false;
@@ -708,9 +802,8 @@ static int rt1320_dsp_path_put(struct snd_kcontrol *kcontrol,
 static const DECLARE_TLV_DB_SCALE(out_vol_tlv, -6525, 75, 0);
 static const DECLARE_TLV_DB_SCALE(in_vol_tlv, -1725, 75, 0);
 
-#ifdef SPI_CTRL
 #define READ_FW_CHK
-static int rt1320_spi_fw_run_get(struct snd_kcontrol *kcontrol,
+static int rt1320_dsp_fw_update_get(struct snd_kcontrol *kcontrol,
 		struct snd_ctl_elem_value *ucontrol)
 {
 	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
@@ -752,7 +845,7 @@ static int dsp_fw_compare(struct rt1320_priv *rt1320, unsigned int addr, unsigne
 };
 #endif
 
-static int rt1320_spi_fw_run_put(struct snd_kcontrol *kcontrol,
+static int rt1320_dsp_fw_update_put(struct snd_kcontrol *kcontrol,
 		struct snd_ctl_elem_value *ucontrol)
 {
 	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
@@ -760,7 +853,7 @@ static int rt1320_spi_fw_run_put(struct snd_kcontrol *kcontrol,
 	const struct firmware *firmware;
 	const char *filename;
 	unsigned int addr;
-	int ret;
+	int ret, i;
 
 
 	dev_dbg(component->dev, "-> %s, value=%u\n", __func__, ucontrol->value.bytes.data[0]);
@@ -862,20 +955,34 @@ static int rt1320_spi_fw_run_put(struct snd_kcontrol *kcontrol,
 #endif
 	release_firmware(firmware);
 
+	/* load AFX0/1 FW */
+	rt1320_afx_load(rt1320);
+#if 1
+	for (i = 0; i < 4; i++) {
+		regmap_write(rt1320->regmap, 0x3FC2BFC7 - i, 0x00);
+		regmap_write(rt1320->regmap, 0x3FC2BFCB - i, 0x00);
+		regmap_write(rt1320->regmap, 0x3FC2BF83 - i, 0x00);
+	}
+
+	for (i = 0; i < 4; i++)
+		regmap_write(rt1320->regmap, 0x3FC2BFC3 - i, ((i == 3) ? 0x0b : 0x00) );
+#else
+	regmap_write(rt1320->regmap, 0x3fc2bfc0, 0x0b);
+	regmap_write(rt1320->regmap, 0xc081, 0xfc);
+#endif
+	printk("%s(%d) FW update end. \n", __func__, __LINE__);
+
 _exit_:
 	return ret;
 }
-#endif
 
 static const struct snd_kcontrol_new rt1320_snd_controls[] = {
 
 	SOC_ENUM_EXT("DSP Path Select", rt1320_dac_data_enum, rt1320_dsp_path_get,
 		rt1320_dsp_path_put),
 
-#ifdef SPI_CTRL
-	SND_SOC_BYTES_EXT("SPI FW run", 1, rt1320_spi_fw_run_get,
-		rt1320_spi_fw_run_put),
-#endif
+	SND_SOC_BYTES_EXT("DSP FW Update", 1, rt1320_dsp_fw_update_get,
+		rt1320_dsp_fw_update_put),
 };
 
 static int rt1320_pdb_event(struct snd_soc_dapm_widget *w,
@@ -1026,6 +1133,8 @@ static int rt1320_component_probe(struct snd_soc_component *component)
 	dev_dbg(component->dev, "%s\n", __func__);
 
 	/* initialization write */
+	rt1320_init(rt1320);
+
 	if (rt1320->version_id < RT1320_VC)
 		; //rt1320_vab_preset(rt1320);
 	else {
@@ -1034,8 +1143,6 @@ static int rt1320_component_probe(struct snd_soc_component *component)
 		if (ret)
 			return -EPROBE_DEFER;
 	}
-
-	rt1320_init(rt1320);
 
 	regmap_read(rt1320->regmap, 0xc680, &val);
 

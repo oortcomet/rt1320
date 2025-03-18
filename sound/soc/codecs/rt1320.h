@@ -19,6 +19,7 @@
 #define RT1320_DSP_DATA_OUTB23_PATH	0x0000c5c7
 #define RT1320_DA_FILTER_DATA		0x0000c5c8
 #define RT1320_PDB_PIN_SET		0x0000c570
+#define RT1320_HIFI3_DSP_CTRL_2		0x0000f01e
 
 /* 0xc5c3: CAE DATA Select Setting */
 #define RT1320_CAE_POST_R_SEL_MASK	0x3 << 6
@@ -69,6 +70,11 @@
 #define RT1320_PDB_PIN_MNL_MASK		0x1 << 0
 #define RT1320_PDB_PIN_MNL_ON		0x1 << 0
 #define RT1320_PDB_PIN_MNL_OFF		0x0 << 0
+
+/* 0xf01e: HIFI3 DSP CTRL 2 */
+#define RT1320_HIFI3_DSP_MASK		0x1
+#define RT1320_HIFI3_DSP_STALL		0x1
+#define RT1320_HIFI3_DSP_RUN		0x0
 
 struct rt1320_priv {
 	struct snd_soc_component *component;

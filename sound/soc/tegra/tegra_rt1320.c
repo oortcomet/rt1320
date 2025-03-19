@@ -100,7 +100,7 @@ static const struct snd_soc_dapm_route tegra_rt1320_dapm_routes[] = {
 };
 
 static const struct snd_kcontrol_new tegra_rt1320_controls[] = {
-	SOC_DAPM_PIN_SWITCH("Speakers"),
+	// SOC_DAPM_PIN_SWITCH("Speakers"),
 };
 
 static int tegra_rt1320_asoc_init(struct snd_soc_pcm_runtime *rtd)

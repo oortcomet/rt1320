@@ -984,6 +984,8 @@ static const struct snd_kcontrol_new rt1320_snd_controls[] = {
 
 	SND_SOC_BYTES_EXT("DSP FW Update", 1, rt1320_dsp_fw_update_get,
 		rt1320_dsp_fw_update_put),
+
+	SOC_DOUBLE("DMIX DAC Switch", 0xcd00, 4, 5, 1, 1),
 };
 
 static int rt1320_pdb_event(struct snd_soc_dapm_widget *w,
@@ -1022,13 +1024,6 @@ static int rt1320_pdb_event(struct snd_soc_dapm_widget *w,
 	return 0;
 }
 
-static const struct snd_kcontrol_new rt1320_spk_l_dac =
-	SOC_DAPM_SINGLE_AUTODISABLE("Switch",
-		0xcd00, 4, 1, 1);
-static const struct snd_kcontrol_new rt1320_spk_r_dac =
-	SOC_DAPM_SINGLE_AUTODISABLE("Switch",
-		0xcd00, 5, 1, 1);
-
 static const struct snd_soc_dapm_widget rt1320_dapm_widgets[] = {
 
 	/* Audio Interface */
@@ -1041,8 +1036,8 @@ static const struct snd_soc_dapm_widget rt1320_dapm_widgets[] = {
 #endif
 	SND_SOC_DAPM_PGA_E("CAE", SND_SOC_NOPM, 0, 0, NULL, 0,
 		rt1320_pdb_event, SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
-	SND_SOC_DAPM_SWITCH("DAC DMIX L", SND_SOC_NOPM, 0, 0, &rt1320_spk_l_dac),
-	SND_SOC_DAPM_SWITCH("DAC DMIX R", SND_SOC_NOPM, 0, 0, &rt1320_spk_r_dac),
+	SND_SOC_DAPM_DAC("DAC DMIX L", NULL, SND_SOC_NOPM, 0, 0),
+	SND_SOC_DAPM_DAC("DAC DMIX R", NULL, SND_SOC_NOPM, 0, 0),
 
 	/* Output */
 	SND_SOC_DAPM_OUTPUT("SPOL"),
@@ -1051,8 +1046,8 @@ static const struct snd_soc_dapm_widget rt1320_dapm_widgets[] = {
 
 static const struct snd_soc_dapm_route rt1320_dapm_routes[] = {
 	{ "CAE", NULL, "AIF1RX" },
-	{ "DAC DMIX L", "Switch", "CAE" },
-	{ "DAC DMIX R", "Switch", "CAE" },
+	{ "DAC DMIX L", NULL, "CAE" },
+	{ "DAC DMIX R", NULL, "CAE" },
 	{ "SPOL", NULL, "DAC DMIX L" },
 	{ "SPOR", NULL, "DAC DMIX R" },
 };

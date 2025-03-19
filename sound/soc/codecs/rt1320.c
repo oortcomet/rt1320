@@ -847,37 +847,33 @@ static int rt1320_dsp_fw_update_get(struct snd_kcontrol *kcontrol,
 	return 0;
 }
 
-static int rt1320_dsp_fw_update_put(struct snd_kcontrol *kcontrol,
-		struct snd_ctl_elem_value *ucontrol)
+static int rt1320_load_dsp_fw(struct rt1320_priv *rt1320)
 {
-	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
-	struct rt1320_priv *rt1320 = snd_soc_component_get_drvdata(component);
+	struct regmap *regmap = rt1320->regmap;
+	struct device *dev = regmap_get_device(regmap);
 	const struct firmware *firmware;
 	const char *filename;
 	unsigned int addr;
 	int ret, i;
 
-	dev_dbg(component->dev, "-> %s, value=%u\n", __func__, ucontrol->value.bytes.data[0]);
+	dev_dbg(dev, "-> %s\n", __func__);
 
-	if (!ucontrol->value.bytes.data[0])
-		return 0;
-
-	regmap_update_bits(rt1320->regmap, 0xf01e, 1 << 7, 0);
+	regmap_update_bits(regmap, 0xf01e, 1 << 7, 0);
 
 	/* 0x3fc000c0 */
 	addr = 0x3fc000c0;
 	filename = "realtek/rt1320/0x3fc000c0.dat";
-	ret = request_firmware(&firmware, filename, component->dev);
+	ret = request_firmware(&firmware, filename, dev);
 	if (ret) {
-		dev_err(component->dev, "%s request error\n", filename);
+		dev_err(dev, "%s request error\n", filename);
 		ret = -ENOENT;
 		goto _exit_;
 	} else {
-		dev_info(component->dev, "%s, size=%d\n", filename, firmware->size);
+		dev_info(dev, "%s, size=%d\n", filename, firmware->size);
 		ret = rt1320_spi_burst_write(addr, firmware->data,
 			firmware->size);
 		if (ret < 0) {
-			dev_err(component->dev, "%s write error\n", filename);
+			dev_err(dev, "%s write error\n", filename);
 			release_firmware(firmware);
 			goto _exit_;
 		}
@@ -890,17 +886,17 @@ static int rt1320_dsp_fw_update_put(struct snd_kcontrol *kcontrol,
 	/* 0x3fc29d80 */
 	addr = 0x3fc29d80;
 	filename = "realtek/rt1320/0x3fc29d80.dat";
-	ret = request_firmware(&firmware, filename, component->dev);
+	ret = request_firmware(&firmware, filename, dev);
 	if (ret) {
-		dev_err(component->dev, "%s request error\n", filename);
+		dev_err(dev, "%s request error\n", filename);
 		ret = -ENOENT;
 		goto _exit_;
 	} else {
-		dev_info(component->dev, "%s, size=%d\n", filename, firmware->size);
+		dev_info(dev, "%s, size=%d\n", filename, firmware->size);
 		ret = rt1320_spi_burst_write(addr, firmware->data,
 			firmware->size);
 		if (ret < 0) {
-			dev_err(component->dev, "%s write error\n", filename);
+			dev_err(dev, "%s write error\n", filename);
 			release_firmware(firmware);
 			goto _exit_;
 		}
@@ -913,17 +909,17 @@ static int rt1320_dsp_fw_update_put(struct snd_kcontrol *kcontrol,
 	/* 0x3fe00000 */
 	addr = 0x3fe00000;
 	filename = "realtek/rt1320/0x3fe00000.dat";
-	ret = request_firmware(&firmware, filename, component->dev);
+	ret = request_firmware(&firmware, filename, dev);
 	if (ret) {
-		dev_err(component->dev, "%s request error\n", filename);
+		dev_err(dev, "%s request error\n", filename);
 		ret = -ENOENT;
 		goto _exit_;
 	} else {
-		dev_info(component->dev, "%s, size=%d\n", filename, firmware->size);
+		dev_info(dev, "%s, size=%d\n", filename, firmware->size);
 		ret = rt1320_spi_burst_write(addr, firmware->data,
 			firmware->size);
 		if (ret < 0) {
-			dev_err(component->dev, "%s write error\n", filename);
+			dev_err(dev, "%s write error\n", filename);
 			release_firmware(firmware);
 			goto _exit_;
 		}
@@ -936,17 +932,17 @@ static int rt1320_dsp_fw_update_put(struct snd_kcontrol *kcontrol,
 	/* 0x3fe02000 */
 	addr = 0x3fe02000;
 	filename = "realtek/rt1320/0x3fe02000.dat";
-	ret = request_firmware(&firmware, filename, component->dev);
+	ret = request_firmware(&firmware, filename, dev);
 	if (ret) {
-		dev_err(component->dev, "%s request error\n", filename);
+		dev_err(dev, "%s request error\n", filename);
 		ret = -ENOENT;
 		goto _exit_;
 	} else {
-		dev_info(component->dev, "%s, size=%d\n", filename, firmware->size);
+		dev_info(dev, "%s, size=%d\n", filename, firmware->size);
 		ret = rt1320_spi_burst_write(addr, firmware->data,
 			firmware->size);
 		if (ret < 0) {
-			dev_err(component->dev, "%s write error\n", filename);
+			dev_err(dev, "%s write error\n", filename);
 			release_firmware(firmware);
 			goto _exit_;
 		}
@@ -960,23 +956,40 @@ static int rt1320_dsp_fw_update_put(struct snd_kcontrol *kcontrol,
 	rt1320_afx_load(rt1320);
 #if 1
 	for (i = 0; i < 4; i++) {
-		regmap_write(rt1320->regmap, 0x3fc2bfc7 - i, 0x00);
-		regmap_write(rt1320->regmap, 0x3fc2bfcb - i, 0x00);
-		regmap_write(rt1320->regmap, 0x3fc2bf83 - i, 0x00);
+		regmap_write(regmap, 0x3fc2bfc7 - i, 0x00);
+		regmap_write(regmap, 0x3fc2bfcb - i, 0x00);
+		regmap_write(regmap, 0x3fc2bf83 - i, 0x00);
 	}
 
 	for (i = 0; i < 4; i++)
-		regmap_write(rt1320->regmap, 0x3fc2bfc3 - i, ((i == 3) ? 0x0b : 0x00) );
+		regmap_write(regmap, 0x3fc2bfc3 - i, ((i == 3) ? 0x0b : 0x00) );
 #else
 	regmap_write(rt1320->regmap, 0x3fc2bfc0, 0x0b);
 	regmap_write(rt1320->regmap, 0xc081, 0xfc);
 #endif
 	printk("%s(%d) FW update end. \n", __func__, __LINE__);
 
-	regmap_update_bits(rt1320->regmap, RT1320_HIFI3_DSP_CTRL_2,
+	regmap_update_bits(regmap, RT1320_HIFI3_DSP_CTRL_2,
 			RT1320_HIFI3_DSP_MASK, RT1320_HIFI3_DSP_RUN);
 _exit_:
+	if (ret)
+		dev_err(dev, "%s: Load DSP FW failed\n", __func__);
+
 	return ret;
+}
+
+static int rt1320_dsp_fw_update_put(struct snd_kcontrol *kcontrol,
+	struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
+	struct rt1320_priv *rt1320 = snd_soc_component_get_drvdata(component);
+
+	dev_dbg(component->dev, "-> %s, value=%u\n", __func__, ucontrol->value.bytes.data[0]);
+
+	if (!ucontrol->value.bytes.data[0])
+		return 0;
+
+	return rt1320_load_dsp_fw(rt1320);
 }
 
 static const struct snd_kcontrol_new rt1320_snd_controls[] = {

@@ -973,6 +973,8 @@ static int rt1320_dsp_fw_update_put(struct snd_kcontrol *kcontrol,
 #endif
 	printk("%s(%d) FW update end. \n", __func__, __LINE__);
 
+	regmap_update_bits(rt1320->regmap, RT1320_HIFI3_DSP_CTRL_2,
+			RT1320_HIFI3_DSP_MASK, RT1320_HIFI3_DSP_RUN);
 _exit_:
 	return ret;
 }
@@ -998,9 +1000,9 @@ static int rt1320_pdb_event(struct snd_soc_dapm_widget *w,
 
 	switch (event) {
 	case SND_SOC_DAPM_PRE_PMU:
-		if (!rt1320->bypass_dsp)
-			regmap_update_bits(rt1320->regmap, RT1320_HIFI3_DSP_CTRL_2,
-					RT1320_HIFI3_DSP_MASK, RT1320_HIFI3_DSP_RUN);
+		// if (!rt1320->bypass_dsp)
+		// 	regmap_update_bits(rt1320->regmap, RT1320_HIFI3_DSP_CTRL_2,
+		// 			RT1320_HIFI3_DSP_MASK, RT1320_HIFI3_DSP_RUN);
 		regmap_update_bits(rt1320->regmap, 0xc044,
 			0xe0, 0x00);
 		regmap_update_bits(rt1320->regmap, RT1320_PDB_PIN_SET,
@@ -1008,9 +1010,9 @@ static int rt1320_pdb_event(struct snd_soc_dapm_widget *w,
 			/*RT1320_PDB_PIN_SEL_MNL |*/ RT1320_PDB_PIN_MNL_ON);
 		break;
 	case SND_SOC_DAPM_POST_PMD:
-		if (!rt1320->bypass_dsp)
-			regmap_update_bits(rt1320->regmap, RT1320_HIFI3_DSP_CTRL_2,
-					RT1320_HIFI3_DSP_MASK, RT1320_HIFI3_DSP_STALL);
+		// if (!rt1320->bypass_dsp)
+		// 	regmap_update_bits(rt1320->regmap, RT1320_HIFI3_DSP_CTRL_2,
+		// 			RT1320_HIFI3_DSP_MASK, RT1320_HIFI3_DSP_STALL);
 		regmap_update_bits(rt1320->regmap, 0xc044,
 			0xe0, 0xe0);
 		regmap_update_bits(rt1320->regmap, RT1320_PDB_PIN_SET,

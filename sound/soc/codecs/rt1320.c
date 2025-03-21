@@ -1194,6 +1194,88 @@ static struct snd_soc_dai_driver rt1320_dai[] = {
 	},
 };
 
+#define RT1320_REG_DISP_LEN 16
+static ssize_t rt1320_codec_show_range(struct rt1320_priv *rt1320,
+	char *buf, int start, int end)
+{
+	unsigned int val;
+	int cnt = 0, i;
+
+	for (i = start; i <= end; i++) {
+		if (cnt + RT1320_REG_DISP_LEN >= PAGE_SIZE)
+			break;
+
+		if (rt1320_readable_register(NULL, i)) {
+			regmap_read(rt1320->regmap, i, &val);
+
+			cnt += snprintf(buf + cnt, RT1320_REG_DISP_LEN,
+					"%08x: %02x\n", i, val);
+		}
+	}
+
+	if (cnt >= PAGE_SIZE)
+		cnt = PAGE_SIZE - 1;
+
+	return cnt;
+}
+
+static ssize_t rt1320_codec_show(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	struct rt1320_priv *rt1320 = dev_get_drvdata(dev);
+	ssize_t cnt;
+
+	cnt = rt1320_codec_show_range(rt1320, buf, 0, 0xffff);
+
+	return cnt;
+}
+
+static ssize_t rt1320_codec_store(struct device *dev,
+	struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct rt1320_priv *rt1320 = dev_get_drvdata(dev);
+	unsigned int val = 0, addr = 0;
+	int i;
+
+	pr_info("register \"%s\" count = %zu\n", buf, count);
+	for (i = 0; i < count; i++) {
+		if (*(buf + i) <= '9' && *(buf + i) >= '0')
+			addr = (addr << 4) | (*(buf + i) - '0');
+		else if (*(buf + i) <= 'f' && *(buf + i) >= 'a')
+			addr = (addr << 4) | ((*(buf + i) - 'a') + 0xa);
+		else if (*(buf + i) <= 'F' && *(buf + i) >= 'A')
+			addr = (addr << 4) | ((*(buf + i)-'A') + 0xa);
+		else
+			break;
+	}
+
+	for (i = i + 1; i < count; i++) {
+		if (*(buf + i) <= '9' && *(buf + i) >= '0')
+			val = (val << 4) | (*(buf + i) - '0');
+		else if (*(buf + i) <= 'f' && *(buf + i) >= 'a')
+			val = (val << 4) | ((*(buf + i) - 'a') + 0xa);
+		else if (*(buf + i) <= 'F' && *(buf + i) >= 'A')
+			val = (val << 4) | ((*(buf + i) - 'A') + 0xa);
+		else
+			break;
+	}
+
+	pr_info("addr = 0x%08x val = 0x%02x\n", addr, val);
+	if (addr > 0xffff || val > 0xff || val < 0)
+		return count;
+
+	if (i == count) {
+		// rt1320_read(addr, &val);
+		regmap_read(rt1320->regmap, addr, &val);
+		pr_info("0x%08x = 0x%02x\n", addr, val);
+	} else
+		// rt1320_write(addr, val);
+		regmap_write(rt1320->regmap, addr, val);
+
+	return count;
+}
+static DEVICE_ATTR(codec_reg, 0644, rt1320_codec_show, rt1320_codec_store);
+
 static const struct regmap_config rt1320_regmap = {
 	.reg_bits = 32,
 	.val_bits = 8,
@@ -1261,6 +1343,13 @@ static int rt1320_i2c_probe(struct i2c_client *i2c)
 		return ret;
 	}
 	rt1320->version_id = val;
+
+	ret = device_create_file(&i2c->dev, &dev_attr_codec_reg);
+	if (ret != 0) {
+		dev_err(&i2c->dev,
+			"Failed to create codec_reg sysfs files: %d\n", ret);
+		return ret;
+	}
 
 	// regmap_read(rt1320->regmap, RT1320_CAE_DATA_PATH, &val);
 	// regmap_read(rt1320->regmap, RT1320_DSP_DATA_INB01_PATH, &val);

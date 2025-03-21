@@ -551,7 +551,7 @@ static int rt1320_load_mcu_patch(struct rt1320_priv *rt1320)
 	} else {
 		ptr = (const unsigned char *)patch->data;
 
-		if (patch->size != RT1320_MCU_PATCH_LEN) {
+		if (patch->size != RT1320_MCU_PATCH_LEN * 8) {
 			dev_err(dev, "%s: the patch's size is diff\n", __func__);
 			patch_same = false;
 		}
@@ -581,6 +581,7 @@ static int rt1320_load_mcu_patch(struct rt1320_priv *rt1320)
 			}
 		}
 
+		dev_dbg(dev, "%s: The patch code size is %d, the bin size is %d\n", __func__, RT1320_MCU_PATCH_LEN, patch->size);
 		if (patch_same)
 			dev_info(dev, "%s: The patch code and bin are SAME\n", __func__);
 		else

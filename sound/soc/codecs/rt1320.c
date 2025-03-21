@@ -28,6 +28,7 @@
 #include "rt1320.h"
 #include "rt1320-sdw.h"
 #include "rt1320-spi.h"
+#include "rt1320_mcu.h"
 
 #define DSP_FW_CHK
 
@@ -527,6 +528,7 @@ static int rt1320_load_mcu_patch(struct rt1320_priv *rt1320)
 	unsigned int addr, val;
 	const unsigned char *ptr;
 	int ret, i;
+	bool patch_same = true;
 
 	if (rt1320->version_id <= RT1320_VB)
 		filename = RT1320_VAB_MCU_PATCH;
@@ -548,6 +550,12 @@ static int rt1320_load_mcu_patch(struct rt1320_priv *rt1320)
 #endif
 	} else {
 		ptr = (const unsigned char *)patch->data;
+
+		if (patch->size != RT1320_MCU_PATCH_LEN) {
+			dev_err(dev, "%s: the patch's size is diff\n", __func__);
+			patch_same = false;
+		}
+
 		if ((patch->size % 8) == 0) {
 			for (i = 0; i < patch->size; i += 8) {
 				addr = (ptr[i] & 0xff) | (ptr[i + 1] & 0xff) << 8 |
@@ -555,17 +563,28 @@ static int rt1320_load_mcu_patch(struct rt1320_priv *rt1320)
 				val = (ptr[i + 4] & 0xff) | (ptr[i + 5] & 0xff) << 8 |
 					(ptr[i + 6] & 0xff) << 16 | (ptr[i + 7] & 0xff) << 24;
 
+				if (addr != mcu_patch_code[i / 8].reg || val != mcu_patch_code[i / 8].def) {
+					dev_err(dev, "%s: the patch's content is diff\n", __func__);
+					patch_same = false;
+					dev_err(dev, "%s: bin: addr=0x%x, val=0x%x; patch: reg=0x%x, def=0x%x\n",
+						__func__, addr, val, mcu_patch_code[i / 8].reg, mcu_patch_code[i / 8].def);
+				}
 				if (addr > 0x10007fff || addr < 0x10007000) {
-					dev_err(dev, "%s: the address 0x%x is wrong", __func__, addr);
+					dev_err(dev, "%s: the address 0x%x is wrong\n", __func__, addr);
 					goto _exit_;
 				}
 				if (val > 0xff) {
-					dev_err(dev, "%s: the value 0x%x is wrong", __func__, val);
+					dev_err(dev, "%s: the value 0x%x is wrong\n", __func__, val);
 					goto _exit_;
 				}
 				regmap_write(rt1320->regmap, addr, val);
 			}
 		}
+
+		if (patch_same)
+			dev_info(dev, "%s: The patch code and bin are SAME\n", __func__);
+		else
+			dev_info(dev, "%s: The patch code and bin are DIFF!!\n", __func__);
 _exit_:
 		release_firmware(patch);
 	}
@@ -1137,7 +1156,7 @@ static int rt1320_component_probe(struct snd_soc_component *component)
 	// int ret;
 	struct rt1320_priv *rt1320 = snd_soc_component_get_drvdata(component);
 	unsigned int val;
-	int ret;
+	int ret, i, retry = 30;
 	rt1320->component = component;
 
 	dev_dbg(component->dev, "%s\n", __func__);
@@ -1159,6 +1178,36 @@ static int rt1320_component_probe(struct snd_soc_component *component)
 	ret = rt1320_load_dsp_fw(rt1320);
 	if (ret)
 		printk("%s: Load DSP FW failed\n", __func__);
+
+	/* Get R0 */
+	regmap_update_bits(rt1320->regmap, 0xc044, 0xe0, 0x00);
+	regmap_write(rt1320->regmap, 0xc570, 0x0b);
+	regmap_write(rt1320->regmap, 0xcd00, 0xc5);
+	msleep(3500);
+
+	regmap_write(rt1320->regmap, 0x3fc2ab80, 0x01);
+	regmap_read(rt1320->regmap, 0x3fc2ab80, &val);
+	regmap_write(rt1320->regmap, 0x3fc2ab90, 0x0b); // LCH
+	regmap_read(rt1320->regmap, 0x3fc2ab90, &val);
+	regmap_write(rt1320->regmap, 0x3fc2ab94, 0x40); // Struct Data Length
+	regmap_read(rt1320->regmap, 0x3fc2ab94, &val);
+	regmap_write(rt1320->regmap, 0x3fc2ab84, 0x48); // Struct + Cmd Length
+	regmap_read(rt1320->regmap, 0x3fc2ab84, &val);
+	regmap_write(rt1320->regmap, 0x3fc2ab81, 0x02); // Trigger to read data
+	for (i = 0; i < retry; i++) {
+		regmap_read(rt1320->regmap, 0x3fc2ab81, &val);
+		if (val == 0)
+			break;
+		regmap_read(rt1320->regmap, 0x3fc2ab80, &val);
+		regmap_read(rt1320->regmap, 0x3fc2ab90, &val);
+		regmap_read(rt1320->regmap, 0x3fc2ab94, &val);
+		regmap_read(rt1320->regmap, 0x3fc2ab84, &val);
+		msleep(100);
+	}
+	if (i == retry)
+		dev_err(component->dev, "L R0 read failed\n");
+	else
+		dev_info(component->dev, "L R0 read succeeded\n");
 
 	return 0;
 }
@@ -1265,7 +1314,7 @@ static ssize_t rt1320_codec_store(struct device *dev,
 	}
 
 	pr_info("addr = 0x%08x val = 0x%02x\n", addr, val);
-	if (addr > 0xffff || val > 0xff || val < 0)
+	if (/*addr > 0xffff ||*/ val > 0xff || val < 0)
 		return count;
 
 	if (i == count) {

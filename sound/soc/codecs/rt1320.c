@@ -1156,6 +1156,10 @@ static int rt1320_component_probe(struct snd_soc_component *component)
 
 	regmap_read(rt1320->regmap, 0xc680, &val);
 
+	ret = rt1320_load_dsp_fw(rt1320);
+	if (ret)
+		printk("%s: Load DSP FW failed\n", __func__);
+
 	return 0;
 }
 

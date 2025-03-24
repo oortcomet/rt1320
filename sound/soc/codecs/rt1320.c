@@ -38,6 +38,7 @@ static const struct reg_sequence vc_init_list[] = {
 	{ 0x0000c000, 0x03 }, //vendor define hard reset
 	{ 0x0000c003, 0xe0 }, //sys_en=1, sys_need_div2=1, sys_clk_sel=rc
 	{ 0x0000c01b, 0xfd }, //clock_alive, pll_sel1=rc_osc, pll_sel0=bclk
+	// { 0x0000c01a, 0x41 }, // derek kR0 debug, PLL input = RC clk
 	{ 0x0000c5c3, 0xf3 }, //cae_rdata_r_sel=cae_test_out7, cae_rdata_l_sel=cae_test_out3, cae_wdata_sel=ob0
 	{ 0x0000c5c2, 0x50 }, //srcin_wdata_sel = i2s, silence_det_0_sel = i2s
 	{ 0x0000c5d3, 0x40 }, // i2s rx0 from iv sync
@@ -297,6 +298,7 @@ static bool rt1320_readable_register(struct device *dev, unsigned int reg)
 	case 0x0000c000:
 	case 0x0000c003:
 	case 0x0000c019:
+	case 0x0000c01a:
 	case 0x0000c01b:
 	case 0x0000c040:
 	case 0x0000c041:
@@ -436,6 +438,7 @@ static bool rt1320_volatile_register(struct device *dev, unsigned int reg)
 	case 0x0000c000:
 	// case 0x0000c003:
 	// case 0x0000c019:
+	// case 0x0000c01a:
 	// case 0x0000c01b:
 
 	// case 0x0000c040:
@@ -737,6 +740,77 @@ int rt1320_afx_load(struct rt1320_priv *rt1320)
 {
 	char afx0_name[] = "realtek/rt1320/AFX0_Ram.bin";
 	char afx1_name[] = "realtek/rt1320/AFX1_Ram.bin";
+	const struct firmware *fw0 = NULL, *fw1 = NULL;
+	struct firmware fmw;
+	int ret;
+
+	// afx0
+	ret = request_firmware(&fw0, afx0_name, rt1320->component->dev);
+	if (ret) {
+		dev_err(rt1320->component->dev, "%s: Request firmware %s failed\n",
+			__func__, afx0_name);
+		goto out;
+	}
+
+	if (!fw0->size) {
+		dev_err(rt1320->component->dev, "%s: file read error: size = %lu\n",
+			__func__, (unsigned long)fw0->size);
+		ret = -EINVAL;
+		goto out;
+	}
+	fmw.size = fw0->size;
+	fmw.data = fw0->data;
+	printk("%s, afx0 size=%zu, data[0]=0x%x\n", __func__, fmw.size, fmw.data[0]);
+
+	rt1320_fw_param_write(rt1320, RT1320_AFX0_LOAD_ADDR, fmw.data, fmw.size);
+
+#ifdef DSP_FW_CHK
+	if (rt1320_dsp_fw_cmp(rt1320, RT1320_AFX0_LOAD_ADDR, fmw.data, fmw.size))
+		pr_err("%s: RT1320_AFX0_LOAD_ADDR update failed!\n", __func__);
+	else
+		pr_err("%s: RT1320_AFX0_LOAD_ADDR update succeeded!\n", __func__);
+#endif
+
+	// afx1
+	ret = request_firmware(&fw1, afx1_name, rt1320->component->dev);
+	if (ret) {
+		dev_err(rt1320->component->dev, "%s: Request firmware %s failed\n",
+			__func__, afx1_name);
+		goto out;
+	}
+
+	if (!fw1->size) {
+		dev_err(rt1320->component->dev, "%s: file read error: size = %lu\n",
+			__func__, (unsigned long)fw1->size);
+		ret = -EINVAL;
+		goto out;
+	}
+	fmw.size = fw1->size;
+	fmw.data = fw1->data;
+	printk("%s, afx1 size=%zu, data[4]=0x%x\n", __func__, fmw.size, fmw.data[4]);
+
+	rt1320_fw_param_write(rt1320, RT1320_AFX1_LOAD_ADDR, fmw.data, fmw.size);
+
+#ifdef DSP_FW_CHK
+	if (rt1320_dsp_fw_cmp(rt1320, RT1320_AFX1_LOAD_ADDR, fmw.data, fmw.size))
+		pr_err("%s: RT1320_AFX1_LOAD_ADDR update failed!\n", __func__);
+	else
+		pr_err("%s: RT1320_AFX1_LOAD_ADDR update succeeded!\n", __func__);
+#endif
+
+out:
+	if (fw0)
+		release_firmware(fw0);
+	if (fw1)
+		release_firmware(fw1);
+
+	return ret;
+}
+
+int rt1320_afx_load_rom(struct rt1320_priv *rt1320)
+{
+	char afx0_name[] = "realtek/rt1320/AFX0.bin";
+	char afx1_name[] = "realtek/rt1320/AFX1.bin";
 	const struct firmware *fw0 = NULL, *fw1 = NULL;
 	struct firmware fmw;
 	int ret;

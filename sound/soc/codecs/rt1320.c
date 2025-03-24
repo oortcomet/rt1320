@@ -1086,6 +1086,63 @@ static int rt1320_dsp_fw_update_put(struct snd_kcontrol *kcontrol,
 	return rt1320_load_dsp_fw(rt1320);
 }
 
+static int rt1320_kR0_get(struct snd_kcontrol *kcontrol,
+	struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
+	dev_dbg(component->dev, "-> %s\n", __func__);
+
+	return 0;
+}
+
+static int rt1320_kR0_put(struct snd_kcontrol *kcontrol,
+	struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
+	struct rt1320_priv *rt1320 = snd_soc_component_get_drvdata(component);
+	int i, retry = 50;
+	unsigned int val;
+
+	dev_dbg(component->dev, "-> %s, value=%u\n", __func__, ucontrol->value.bytes.data[0]);
+
+	if (!ucontrol->value.bytes.data[0])
+		return 0;
+
+	msleep(3000);
+
+	for (i = 0; i < retry; i++) {
+		regmap_write(rt1320->regmap, 0x3fc2ab80, 0x01);
+		regmap_read(rt1320->regmap, 0x3fc2ab80, &val);
+		regmap_write(rt1320->regmap, 0x3fc2ab90, 0x0b); // LCH
+		regmap_read(rt1320->regmap, 0x3fc2ab90, &val);
+		regmap_write(rt1320->regmap, 0x3fc2ab94, 0x40); // Struct Data Length
+		regmap_read(rt1320->regmap, 0x3fc2ab94, &val);
+		regmap_write(rt1320->regmap, 0x3fc2ab84, 0x48); // Struct + Cmd Length
+		regmap_read(rt1320->regmap, 0x3fc2ab84, &val);
+		regmap_write(rt1320->regmap, 0x3fc2ab81, 0x02); // Trigger to read data
+		regmap_read(rt1320->regmap, 0x3fc2ab81, &val);
+		if (val == 0)
+			break;
+		regmap_read(rt1320->regmap, 0x3fc2ab80, &val);
+		regmap_read(rt1320->regmap, 0x3fc2ab90, &val);
+		regmap_read(rt1320->regmap, 0x3fc2ab94, &val);
+		regmap_read(rt1320->regmap, 0x3fc2ab84, &val);
+		msleep(100);
+	}
+
+	regmap_read(rt1320->regmap, 0x3fc2aba8, &val);
+	regmap_read(rt1320->regmap, 0x3fc2aba9, &val);
+	regmap_read(rt1320->regmap, 0x3fc2abaa, &val);
+	regmap_read(rt1320->regmap, 0x3fc2abab, &val);
+
+	if (i == retry)
+		dev_err(component->dev, "L R0 read failed\n");
+	else
+		dev_info(component->dev, "L R0 read succeeded\n");
+
+	return 0;
+}
+
 static const struct snd_kcontrol_new rt1320_snd_controls[] = {
 
 	SOC_ENUM_EXT("DSP Path Select", rt1320_dac_data_enum, rt1320_dsp_path_get,
@@ -1095,6 +1152,9 @@ static const struct snd_kcontrol_new rt1320_snd_controls[] = {
 		rt1320_dsp_fw_update_put),
 
 	SOC_DOUBLE("DMIX DAC Switch", 0xcd00, 4, 5, 1, 1),
+
+	SND_SOC_BYTES_EXT("Get R0", 1, rt1320_kR0_get,
+		rt1320_kR0_put),
 };
 
 static int rt1320_pdb_event(struct snd_soc_dapm_widget *w,
@@ -1112,9 +1172,9 @@ static int rt1320_pdb_event(struct snd_soc_dapm_widget *w,
 		// 			RT1320_HIFI3_DSP_MASK, RT1320_HIFI3_DSP_RUN);
 		regmap_update_bits(rt1320->regmap, 0xc044,
 			0xe0, 0x00);
-		regmap_update_bits(rt1320->regmap, RT1320_PDB_PIN_SET,
-			/*RT1320_PDB_PIN_SEL_MASK |*/ RT1320_PDB_PIN_MNL_MASK,
-			/*RT1320_PDB_PIN_SEL_MNL |*/ RT1320_PDB_PIN_MNL_ON);
+		// regmap_update_bits(rt1320->regmap, RT1320_PDB_PIN_SET,
+		// 	/*RT1320_PDB_PIN_SEL_MASK |*/ RT1320_PDB_PIN_MNL_MASK,
+		// 	/*RT1320_PDB_PIN_SEL_MNL |*/ RT1320_PDB_PIN_MNL_ON);
 		break;
 	case SND_SOC_DAPM_POST_PMD:
 		// if (!rt1320->bypass_dsp)
@@ -1122,9 +1182,9 @@ static int rt1320_pdb_event(struct snd_soc_dapm_widget *w,
 		// 			RT1320_HIFI3_DSP_MASK, RT1320_HIFI3_DSP_STALL);
 		regmap_update_bits(rt1320->regmap, 0xc044,
 			0xe0, 0xe0);
-		regmap_update_bits(rt1320->regmap, RT1320_PDB_PIN_SET,
-			/*RT1320_PDB_PIN_SEL_MASK |*/ RT1320_PDB_PIN_MNL_MASK,
-			/*RT1320_PDB_PIN_SEL_MNL |*/ RT1320_PDB_PIN_MNL_OFF);
+		// regmap_update_bits(rt1320->regmap, RT1320_PDB_PIN_SET,
+		// 	/*RT1320_PDB_PIN_SEL_MASK |*/ RT1320_PDB_PIN_MNL_MASK,
+		// 	/*RT1320_PDB_PIN_SEL_MNL |*/ RT1320_PDB_PIN_MNL_OFF);
 		break;
 	default:
 		break;
@@ -1255,6 +1315,7 @@ static int rt1320_component_probe(struct snd_soc_component *component)
 		printk("%s: Load DSP FW failed\n", __func__);
 
 	/* Get R0 */
+#if 0
 	regmap_update_bits(rt1320->regmap, 0xc044, 0xe0, 0x00);
 	regmap_write(rt1320->regmap, 0xc570, 0x0b);
 	regmap_write(rt1320->regmap, 0xcd00, 0xc5);
@@ -1283,7 +1344,7 @@ static int rt1320_component_probe(struct snd_soc_component *component)
 		dev_err(component->dev, "L R0 read failed\n");
 	else
 		dev_info(component->dev, "L R0 read succeeded\n");
-
+#endif
 	return 0;
 }
 

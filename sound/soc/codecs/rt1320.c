@@ -352,10 +352,7 @@ static bool rt1320_readable_register(struct device *dev, unsigned int reg)
 	case 0x0000d47a:
 	case 0x0000d486:
 	case 0x0000d487:
-	case 0x0000dd08:
-	case 0x0000dd09:
-	case 0x0000dd0a:
-	case 0x0000dd0b:
+	case 0x0000dd08 ... 0x0000dd0b:
 	case 0x0000de03:
 	case 0x0000e802:
 	case 0x0000e803:
@@ -1143,6 +1140,56 @@ static int rt1320_kR0_put(struct snd_kcontrol *kcontrol,
 	return 0;
 }
 
+static int rt1320_post_dgain_get(struct snd_kcontrol *kcontrol,
+	struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
+	struct rt1320_priv *rt1320 = snd_soc_component_get_drvdata(component);
+	struct soc_mixer_control *mc = (struct soc_mixer_control *)kcontrol->private_value;
+	unsigned int vol = 0, rval, val_inter = 0x10;
+
+	regmap_read(rt1320->regmap, RT1320_SPK_POST_GAIN_L_HI, &rval);
+	vol = (rval & 0xf) << 8;
+	regmap_read(rt1320->regmap, RT1320_SPK_POST_GAIN_L_LO, &rval);
+	vol |= (rval & 0xff);
+	ucontrol->value.integer.value[0] = mc->max - (0xfff - vol) / val_inter;
+
+	regmap_read(rt1320->regmap, RT1320_SPK_POST_GAIN_R_HI, &rval);
+	vol = (rval & 0xf) << 8;
+	regmap_read(rt1320->regmap, RT1320_SPK_POST_GAIN_R_LO, &rval);
+	vol |= (rval & 0xff);
+	ucontrol->value.integer.value[1] = mc->max - (0xfff - vol) / val_inter;
+
+	dev_dbg(component->dev, "%s, L=%ld, R=%ld\n", __func__,
+		ucontrol->value.integer.value[0], ucontrol->value.integer.value[1]);
+
+	return 0;
+}
+
+static int rt1320_post_dgain_put(struct snd_kcontrol *kcontrol,
+	struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
+	struct rt1320_priv *rt1320 = snd_soc_component_get_drvdata(component);
+	struct soc_mixer_control *mc = (struct soc_mixer_control *)kcontrol->private_value;
+	unsigned int rval, val_inter = 0x10;
+
+	dev_dbg(component->dev, "%s, L=%ld, R=%ld\n", __func__,
+		ucontrol->value.integer.value[0], ucontrol->value.integer.value[1]);
+
+	rval = (mc->max - ucontrol->value.integer.value[0]) * val_inter;
+	rval = 0xfff - (rval & 0xfff);
+	regmap_write(rt1320->regmap, RT1320_SPK_POST_GAIN_L_HI, (rval >> 8) & 0xf);
+	regmap_write(rt1320->regmap, RT1320_SPK_POST_GAIN_L_LO, rval & 0xff);
+
+	rval = (mc->max - ucontrol->value.integer.value[1]) * val_inter;
+	rval = 0xfff - (rval & 0xfff);
+	regmap_write(rt1320->regmap, RT1320_SPK_POST_GAIN_R_HI, (rval >> 8) & 0xf);
+	regmap_write(rt1320->regmap, RT1320_SPK_POST_GAIN_R_LO, rval & 0xff);
+
+	return 0;
+}
+
 static const struct snd_kcontrol_new rt1320_snd_controls[] = {
 
 	SOC_ENUM_EXT("DSP Path Select", rt1320_dac_data_enum, rt1320_dsp_path_get,
@@ -1150,6 +1197,9 @@ static const struct snd_kcontrol_new rt1320_snd_controls[] = {
 
 	SND_SOC_BYTES_EXT("DSP FW Update", 1, rt1320_dsp_fw_update_get,
 		rt1320_dsp_fw_update_put),
+
+	SOC_DOUBLE_EXT("Amp Playback Volume", SND_SOC_NOPM, 0, 1, 255, 0,
+		rt1320_post_dgain_get, rt1320_post_dgain_put),
 
 	SOC_DOUBLE("DMIX DAC Switch", 0xcd00, 4, 5, 1, 1),
 

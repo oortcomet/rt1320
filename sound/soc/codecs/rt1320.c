@@ -361,6 +361,7 @@ static bool rt1320_readable_register(struct device *dev, unsigned int reg)
 	case 0x0000f082:
 	case 0x0000f083:
 	case 0x0000f084:
+	case 0x0000f015:
 	case 0x0000f01c ... 0x0000f01f:
 	case 0x1000cd91 ... 0x1000cd96:
 	case 0x1000f008:
@@ -420,6 +421,13 @@ static bool rt1320_readable_register(struct device *dev, unsigned int reg)
 	case 0x3fc2bfc6:
 	case 0x3fc2bfc7:
 	*/
+	case 0x41000189:
+	case 0x4100018a:
+	case 0x410018a9:
+	case 0x410018c9:
+	case 0x41001988:
+	case 0x41081980:
+	case 0x41181880:
 		return true;
 	default:
 		break;
@@ -442,7 +450,7 @@ static bool rt1320_volatile_register(struct device *dev, unsigned int reg)
 	// case 0x0000c041:
 	// case 0x0000c042:
 	// case 0x0000c043:
-	// case 0x0000c044:
+	case 0x0000c044:
 	// case 0x0000c045:
 	// case 0x0000c046:
 	// case 0x0000c047:
@@ -501,13 +509,20 @@ static bool rt1320_volatile_register(struct device *dev, unsigned int reg)
 
 	case 0x1000cd91 ... 0x1000cd96:
 	case 0x1000f008:
+	case 0x0000f015:
 	case 0x1000f021:
 	case 0x0000f01c ... 0x0000f01f:
 	case 0x3fc2ab80 ... 0x3fc2abd4:
 	case 0x3fc2bf80 ... 0x3fc2bf83:
 	case 0x3fc2bfc0 ... 0x3fc2bfc7:
 	case 0x3fe2e000 ... 0x3fe2e003:
-
+	case 0x41000189:
+	case 0x4100018a:
+	case 0x410018a9:
+	case 0x410018c9:
+	case 0x41001988:
+	case 0x41081980:
+	case 0x41181880:
 		return true;
 	default:
 		return false;

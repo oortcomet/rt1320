@@ -1235,8 +1235,8 @@ static int rt1320_pdb_event(struct snd_soc_dapm_widget *w,
 		// if (!rt1320->bypass_dsp)
 		// 	regmap_update_bits(rt1320->regmap, RT1320_HIFI3_DSP_CTRL_2,
 		// 			RT1320_HIFI3_DSP_MASK, RT1320_HIFI3_DSP_RUN);
-		regmap_update_bits(rt1320->regmap, 0xc044,
-			0xe0, 0x00);
+		// regmap_update_bits(rt1320->regmap, 0xc044,
+		// 	0xe0, 0x00);
 		// regmap_update_bits(rt1320->regmap, RT1320_PDB_PIN_SET,
 		// 	/*RT1320_PDB_PIN_SEL_MASK |*/ RT1320_PDB_PIN_MNL_MASK,
 		// 	/*RT1320_PDB_PIN_SEL_MNL |*/ RT1320_PDB_PIN_MNL_ON);
@@ -1245,8 +1245,8 @@ static int rt1320_pdb_event(struct snd_soc_dapm_widget *w,
 		// if (!rt1320->bypass_dsp)
 		// 	regmap_update_bits(rt1320->regmap, RT1320_HIFI3_DSP_CTRL_2,
 		// 			RT1320_HIFI3_DSP_MASK, RT1320_HIFI3_DSP_STALL);
-		regmap_update_bits(rt1320->regmap, 0xc044,
-			0xe0, 0xe0);
+		// regmap_update_bits(rt1320->regmap, 0xc044,
+		// 	0xe0, 0xe0);
 		// regmap_update_bits(rt1320->regmap, RT1320_PDB_PIN_SET,
 		// 	/*RT1320_PDB_PIN_SEL_MASK |*/ RT1320_PDB_PIN_MNL_MASK,
 		// 	/*RT1320_PDB_PIN_SEL_MNL |*/ RT1320_PDB_PIN_MNL_OFF);
@@ -1410,6 +1410,9 @@ static int rt1320_component_probe(struct snd_soc_component *component)
 	else
 		dev_info(component->dev, "L R0 read succeeded\n");
 #endif
+
+	regmap_update_bits(rt1320->regmap, 0xc044, 0xe0, 0x0);
+
 	return 0;
 }
 

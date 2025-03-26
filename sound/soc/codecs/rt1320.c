@@ -693,7 +693,7 @@ static SOC_ENUM_SINGLE_DECL(rt1320_dsp_ob1_enum,
 	RT1320_DSP_DATA_OUTB01_PATH, RT1320_DSP_OUTB1_SEL_SFT, rt1320_dsp_ob_select);
 #endif
 static const char * const rt1320_dac_data_path[] = {
-	"Through DSP", "Bypass DSP",
+	"Pass", "Bypass",
 };
 
 static SOC_ENUM_SINGLE_DECL(rt1320_dac_data_enum, SND_SOC_NOPM,

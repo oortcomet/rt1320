@@ -30,7 +30,9 @@
 #include "rt1320-spi.h"
 #include "rt1320_mcu.h"
 
-#define DSP_FW_CHK
+#define RT1320_FW_PATH "realtek/rt1320"
+#define AFX0_RAM_FILE "realtek/rt1320/AFX0_Ram.bin"
+#define AFX1_RAM_FILE "realtek/rt1320/AFX1_Ram.bin"
 
 static const struct reg_sequence vc_init_list[] = {
 	//IC version VAC
@@ -699,9 +701,10 @@ static const char * const rt1320_dac_data_path[] = {
 static SOC_ENUM_SINGLE_DECL(rt1320_dac_data_enum, SND_SOC_NOPM,
 	0, rt1320_dac_data_path);
 
-static void rt1320_fw_param_write(struct rt1320_priv *rt1320,
+static int rt1320_fw_param_write(struct rt1320_priv *rt1320,
 	unsigned int start_addr, const char *buf, unsigned int buf_size)
 {
+	int ret = 0;
 	printk("%s, start\n", __func__);
 #if 0 // I2C
 	int i;
@@ -710,176 +713,176 @@ static void rt1320_fw_param_write(struct rt1320_priv *rt1320,
 		start_addr++;
 	}
 #else // SPI
-	rt1320_spi_burst_write(start_addr, buf, buf_size);
+	ret = rt1320_spi_burst_write(start_addr, buf, buf_size);
 #endif
 	printk("%s, done\n", __func__);
+
+	return ret;
 }
 
-#ifdef DSP_FW_CHK
-static int rt1320_dsp_fw_cmp(struct rt1320_priv *rt1320, unsigned int addr, const u8 *txbuf, unsigned int size)
+static int rt1320_dsp_fw_check(struct rt1320_priv *rt1320, unsigned int addr, const u8 *txbuf,
+	unsigned int size, const char *dumpfile, bool compare)
 {
-	struct snd_soc_component *component = rt1320->component;
-	int ret, i;
+	struct device *dev = regmap_get_device(rt1320->regmap);
+	struct file *fp;
+	loff_t pos = 0;
+	int ret, i, len;
+	const unsigned int count = 64;
+	unsigned int done = 0;
 	u8 *rxbuf = kmalloc(size, GFP_KERNEL);
 	if (!rxbuf)
 		return -ENOMEM;
 
 	ret = rt1320_spi_burst_read(addr, rxbuf, size);
 	if (ret < 0) {
-		dev_err(component->dev, "Addr %x: read error: %d\n", addr, ret);
-	} else {
-		if (memcmp(txbuf, rxbuf, size)) {
-			dev_err(component->dev, "Addr %x: compare failed\n", addr);
-			for (i = 0; i < size; i++) {
-				if (txbuf[i] != rxbuf[i]) {
-					dev_err(component->dev, "Diff: [0x%x] 0x%x != 0x%x\n",
-						addr + i, txbuf[i], rxbuf[i]);
+		dev_err(dev, "Addr %x: read error: %d\n", addr, ret);
+		goto _exit_;
+	}
+
+	dev_dbg(dev, "dump file: %s\n", dumpfile);
+	if (dumpfile) {
+		fp = filp_open(dumpfile, O_WRONLY | O_CREAT, 0644);
+		if (!IS_ERR(fp)) {
+			done = 0;
+			while (done < size) {
+				len = min(count, size - done);
+				ret = kernel_write(fp, &rxbuf[done], len, &pos);
+				if (ret < 0) {
+					dev_err(dev, "write %s error: %d\n", dumpfile, ret);
 					break;
 				}
+				done += len;
 			}
-			ret = -EINVAL;
+			if (ret >= 0)
+				ret = 0;
 		} else {
-			dev_info(component->dev, "Addr %x: compare succeeded\n", addr);
+			dev_err(dev, "open %s error: %d\n", dumpfile, (int)PTR_ERR(fp));
+			ret = (int)PTR_ERR(fp);
 		}
 	}
 
+	if (!compare)
+		goto _exit_;
+
+	if (memcmp(txbuf, rxbuf, size)) {
+		dev_err(dev, "Addr %x: compare failed\n", addr);
+		for (i = 0; i < size; i++) {
+			if (txbuf[i] != rxbuf[i]) {
+				dev_err(dev, "Diff: [0x%x] 0x%x != 0x%x\n",
+					addr + i, txbuf[i], rxbuf[i]);
+				break;
+			}
+		}
+		ret = -EINVAL;
+	} else {
+		dev_info(dev, "%s, Addr %x: compare succeeded\n", __func__, addr);
+	}
+
+_exit_:
 	kfree(rxbuf);
+
+	if (!IS_ERR(fp))
+		filp_close(fp, NULL);
+
 	return ret;
 };
-#endif
 
-int rt1320_afx_load(struct rt1320_priv *rt1320)
+int rt1320_afx_load(struct rt1320_priv *rt1320, unsigned char action)
 {
-	char afx0_name[] = "realtek/rt1320/AFX0_Ram.bin";
-	char afx1_name[] = "realtek/rt1320/AFX1_Ram.bin";
+	struct device *dev = regmap_get_device(rt1320->regmap);
+	const char *afx_dump = NULL;
 	const struct firmware *fw0 = NULL, *fw1 = NULL;
-	struct firmware fmw;
 	int ret;
 
 	// afx0
-	ret = request_firmware(&fw0, afx0_name, rt1320->component->dev);
+	ret = request_firmware(&fw0, AFX0_RAM_FILE, dev);
 	if (ret) {
-		dev_err(rt1320->component->dev, "%s: Request firmware %s failed\n",
-			__func__, afx0_name);
-		goto out;
+		dev_err(dev, "%s: Request firmware %s failed\n", __func__, AFX0_RAM_FILE);
+		goto _exit_;
+	}
+	dev_info(dev, "%s, afx0 size=%zu, data[0]=0x%x\n", __func__, fw0->size, fw0->data[0]);
+
+	if (action == 2 || action == 3)
+		afx_dump = "/lib/firmware/realtek/rt1320/afx0.dump";
+
+	if (action == 1 || action == 3) {
+		ret = rt1320_fw_param_write(rt1320, RT1320_AFX0_LOAD_ADDR, fw0->data, fw0->size);
+		if (ret)
+			dev_err(dev, "%s: RT1320_AFX0_LOAD_ADDR write failed! %d\n", __func__, ret);
 	}
 
-	if (!fw0->size) {
-		dev_err(rt1320->component->dev, "%s: file read error: size = %lu\n",
-			__func__, (unsigned long)fw0->size);
-		ret = -EINVAL;
-		goto out;
+	if (action == 2 || action == 3) {
+		if (rt1320_dsp_fw_check(rt1320, RT1320_AFX0_LOAD_ADDR, fw0->data, fw0->size, afx_dump, action == 3))
+			dev_err(dev, "%s: RT1320_AFX0_LOAD_ADDR %s failed!\n", __func__, action == 3 ? "update" : "dump");
 	}
-	fmw.size = fw0->size;
-	fmw.data = fw0->data;
-	printk("%s, afx0 size=%zu, data[0]=0x%x\n", __func__, fmw.size, fmw.data[0]);
-
-	rt1320_fw_param_write(rt1320, RT1320_AFX0_LOAD_ADDR, fmw.data, fmw.size);
-
-#ifdef DSP_FW_CHK
-	if (rt1320_dsp_fw_cmp(rt1320, RT1320_AFX0_LOAD_ADDR, fmw.data, fmw.size))
-		pr_err("%s: RT1320_AFX0_LOAD_ADDR update failed!\n", __func__);
-	else
-		pr_err("%s: RT1320_AFX0_LOAD_ADDR update succeeded!\n", __func__);
-#endif
+	release_firmware(fw0);
 
 	// afx1
-	ret = request_firmware(&fw1, afx1_name, rt1320->component->dev);
+	ret = request_firmware(&fw1, AFX1_RAM_FILE, dev);
 	if (ret) {
-		dev_err(rt1320->component->dev, "%s: Request firmware %s failed\n",
-			__func__, afx1_name);
-		goto out;
+		dev_err(dev, "%s: Request firmware %s failed\n", __func__, AFX1_RAM_FILE);
+		goto _exit_;
+	}
+	dev_info(dev, "%s, afx1 size=%zu, data[4]=0x%x\n", __func__, fw1->size, fw1->data[4]);
+
+	if (action == 2 || action == 3)
+		afx_dump = "/lib/firmware/realtek/rt1320/afx1.dump";
+
+	if (action == 1 || action == 3) {
+		ret = rt1320_fw_param_write(rt1320, RT1320_AFX1_LOAD_ADDR, fw1->data, fw1->size);
+		if (ret)
+			dev_err(dev, "%s: RT1320_AFX1_LOAD_ADDR write failed! %d\n", __func__, ret);
 	}
 
-	if (!fw1->size) {
-		dev_err(rt1320->component->dev, "%s: file read error: size = %lu\n",
-			__func__, (unsigned long)fw1->size);
-		ret = -EINVAL;
-		goto out;
+	if (action == 2 || action == 3) {
+		if (rt1320_dsp_fw_check(rt1320, RT1320_AFX1_LOAD_ADDR, fw1->data, fw1->size, afx_dump, action == 3))
+			dev_err(dev, "%s: RT1320_AFX1_LOAD_ADDR %s failed!\n", __func__, action == 3 ? "update" : "dump");
 	}
-	fmw.size = fw1->size;
-	fmw.data = fw1->data;
-	printk("%s, afx1 size=%zu, data[4]=0x%x\n", __func__, fmw.size, fmw.data[4]);
+	release_firmware(fw1);
 
-	rt1320_fw_param_write(rt1320, RT1320_AFX1_LOAD_ADDR, fmw.data, fmw.size);
-
-#ifdef DSP_FW_CHK
-	if (rt1320_dsp_fw_cmp(rt1320, RT1320_AFX1_LOAD_ADDR, fmw.data, fmw.size))
-		pr_err("%s: RT1320_AFX1_LOAD_ADDR update failed!\n", __func__);
-	else
-		pr_err("%s: RT1320_AFX1_LOAD_ADDR update succeeded!\n", __func__);
-#endif
-
-out:
-	if (fw0)
-		release_firmware(fw0);
-	if (fw1)
-		release_firmware(fw1);
+_exit_:
+	if (ret)
+		dev_err(dev, "%s: failed! %d\n", __func__, ret);
 
 	return ret;
 }
 
 int rt1320_afx_load_rom(struct rt1320_priv *rt1320)
 {
+	struct device *dev = regmap_get_device(rt1320->regmap);
 	char afx0_name[] = "realtek/rt1320/AFX0.bin";
 	char afx1_name[] = "realtek/rt1320/AFX1.bin";
 	const struct firmware *fw0 = NULL, *fw1 = NULL;
-	struct firmware fmw;
 	int ret;
 
 	// afx0
-	ret = request_firmware(&fw0, afx0_name, rt1320->component->dev);
+	ret = request_firmware(&fw0, afx0_name, dev);
 	if (ret) {
-		dev_err(rt1320->component->dev, "%s: Request firmware %s failed\n",
-			__func__, afx0_name);
+		dev_err(dev, "%s: Request firmware %s failed\n", __func__, afx0_name);
 		goto out;
 	}
+	dev_info(dev, "%s, afx0 size=%zu, data[0]=0x%x\n", __func__, fw0->size, fw0->data[0]);
 
-	if (!fw0->size) {
-		dev_err(rt1320->component->dev, "%s: file read error: size = %lu\n",
-			__func__, (unsigned long)fw0->size);
-		ret = -EINVAL;
-		goto out;
-	}
-	fmw.size = fw0->size;
-	fmw.data = fw0->data;
-	printk("%s, afx0 size=%zu, data[0]=0x%x\n", __func__, fmw.size, fmw.data[0]);
+	rt1320_fw_param_write(rt1320, RT1320_AFX0_LOAD_ADDR, fw0->data, fw0->size);
 
-	rt1320_fw_param_write(rt1320, RT1320_AFX0_LOAD_ADDR, fmw.data, fmw.size);
-
-#ifdef DSP_FW_CHK
-	if (rt1320_dsp_fw_cmp(rt1320, RT1320_AFX0_LOAD_ADDR, fmw.data, fmw.size))
+	if (rt1320_dsp_fw_check(rt1320, RT1320_AFX0_LOAD_ADDR, fw0->data, fw0->size, NULL, true))
 		pr_err("%s: RT1320_AFX0_LOAD_ADDR update failed!\n", __func__);
 	else
 		pr_err("%s: RT1320_AFX0_LOAD_ADDR update succeeded!\n", __func__);
-#endif
 
 	// afx1
-	ret = request_firmware(&fw1, afx1_name, rt1320->component->dev);
+	ret = request_firmware(&fw1, afx1_name, dev);
 	if (ret) {
-		dev_err(rt1320->component->dev, "%s: Request firmware %s failed\n",
-			__func__, afx1_name);
+		dev_err(dev, "%s: Request firmware %s failed\n", __func__, afx1_name);
 		goto out;
 	}
+	dev_info(dev, "%s, afx1 size=%zu, data[4]=0x%x\n", __func__, fw1->size, fw1->data[4]);
+	rt1320_fw_param_write(rt1320, RT1320_AFX1_LOAD_ADDR, fw1->data, fw1->size);
 
-	if (!fw1->size) {
-		dev_err(rt1320->component->dev, "%s: file read error: size = %lu\n",
-			__func__, (unsigned long)fw1->size);
-		ret = -EINVAL;
-		goto out;
-	}
-	fmw.size = fw1->size;
-	fmw.data = fw1->data;
-	printk("%s, afx1 size=%zu, data[4]=0x%x\n", __func__, fmw.size, fmw.data[4]);
-
-	rt1320_fw_param_write(rt1320, RT1320_AFX1_LOAD_ADDR, fmw.data, fmw.size);
-
-#ifdef DSP_FW_CHK
-	if (rt1320_dsp_fw_cmp(rt1320, RT1320_AFX1_LOAD_ADDR, fmw.data, fmw.size))
+	if (rt1320_dsp_fw_check(rt1320, RT1320_AFX1_LOAD_ADDR, fw1->data, fw1->size, NULL, true))
 		pr_err("%s: RT1320_AFX1_LOAD_ADDR update failed!\n", __func__);
 	else
 		pr_err("%s: RT1320_AFX1_LOAD_ADDR update succeeded!\n", __func__);
-#endif
 
 out:
 	if (fw0)
@@ -953,14 +956,15 @@ static int rt1320_dsp_fw_update_get(struct snd_kcontrol *kcontrol,
 	return 0;
 }
 
-static int rt1320_load_dsp_fw(struct rt1320_priv *rt1320)
+static int rt1320_load_dsp_fw(struct rt1320_priv *rt1320, unsigned char action)
 {
 	struct regmap *regmap = rt1320->regmap;
 	struct device *dev = regmap_get_device(regmap);
 	const struct firmware *firmware;
-	const char *filename;
+	char *filename = NULL;
+	char *dumpfile = NULL;
 	unsigned int addr;
-	int ret, i;
+	int ret, i, check_err = 0;
 
 	dev_dbg(dev, "-> %s\n", __func__);
 
@@ -974,19 +978,26 @@ static int rt1320_load_dsp_fw(struct rt1320_priv *rt1320)
 		dev_err(dev, "%s request error\n", filename);
 		ret = -ENOENT;
 		goto _exit_;
-	} else {
-		dev_info(dev, "%s, size=%d\n", filename, firmware->size);
-		ret = rt1320_spi_burst_write(addr, firmware->data,
-			firmware->size);
+	}
+	dev_info(dev, "fw: %s, size=%d, dump: %s\n", filename, firmware->size, dumpfile);
+
+	if (action == 1 || action == 3) {
+		ret = rt1320_spi_burst_write(addr, firmware->data, firmware->size);
 		if (ret < 0) {
 			dev_err(dev, "%s write error\n", filename);
 			release_firmware(firmware);
 			goto _exit_;
 		}
 	}
-#ifdef DSP_FW_CHK
-	ret = rt1320_dsp_fw_cmp(rt1320, addr, firmware->data, firmware->size);
-#endif
+
+	if (action == 2 || action == 3) {
+		dumpfile = "/lib/firmware/realtek/rt1320/0x3fc000c0.dump";
+		ret = rt1320_dsp_fw_check(rt1320, addr, firmware->data, firmware->size, dumpfile, action == 3);
+		if (ret) {
+			dev_err(dev, "FW of 0x%x %s failed\n", addr, action == 3 ? "update" : "dump");
+			check_err = 1;
+		}
+	}
 	release_firmware(firmware);
 
 	/* 0x3fc29d80 */
@@ -997,19 +1008,26 @@ static int rt1320_load_dsp_fw(struct rt1320_priv *rt1320)
 		dev_err(dev, "%s request error\n", filename);
 		ret = -ENOENT;
 		goto _exit_;
-	} else {
-		dev_info(dev, "%s, size=%d\n", filename, firmware->size);
-		ret = rt1320_spi_burst_write(addr, firmware->data,
-			firmware->size);
+	}
+	dev_info(dev, "fw: %s, size=%d, dump: %s\n", filename, firmware->size, dumpfile);
+
+	if (action == 1 || action == 3) {
+		ret = rt1320_spi_burst_write(addr, firmware->data, firmware->size);
 		if (ret < 0) {
 			dev_err(dev, "%s write error\n", filename);
 			release_firmware(firmware);
 			goto _exit_;
 		}
 	}
-#ifdef DSP_FW_CHK
-	ret = rt1320_dsp_fw_cmp(rt1320, addr, firmware->data, firmware->size);
-#endif
+
+	if (action == 2 || action == 3) {
+		dumpfile = "/lib/firmware/realtek/rt1320/0x3fc29d80.dump";
+		ret = rt1320_dsp_fw_check(rt1320, addr, firmware->data, firmware->size, dumpfile, action == 3);
+		if (ret) {
+			dev_err(dev, "FW of 0x%x %s failed\n", addr, action == 3 ? "update" : "dump");
+			check_err = 1;
+		}
+	}
 	release_firmware(firmware);
 
 	/* 0x3fe00000 */
@@ -1020,19 +1038,26 @@ static int rt1320_load_dsp_fw(struct rt1320_priv *rt1320)
 		dev_err(dev, "%s request error\n", filename);
 		ret = -ENOENT;
 		goto _exit_;
-	} else {
-		dev_info(dev, "%s, size=%d\n", filename, firmware->size);
-		ret = rt1320_spi_burst_write(addr, firmware->data,
-			firmware->size);
+	}
+	dev_info(dev, "fw: %s, size=%d, dump: %s\n", filename, firmware->size, dumpfile);
+
+	if (action == 1 || action == 3) {
+		ret = rt1320_spi_burst_write(addr, firmware->data, firmware->size);
 		if (ret < 0) {
 			dev_err(dev, "%s write error\n", filename);
 			release_firmware(firmware);
 			goto _exit_;
 		}
 	}
-#ifdef DSP_FW_CHK
-	ret = rt1320_dsp_fw_cmp(rt1320, addr, firmware->data, firmware->size);
-#endif
+
+	if (action == 2 || action == 3) {
+		dumpfile = "/lib/firmware/realtek/rt1320/0x3fe00000.dump";
+		ret = rt1320_dsp_fw_check(rt1320, addr, firmware->data, firmware->size, dumpfile, action == 3);
+		if (ret) {
+			dev_err(dev, "FW of 0x%x %s failed\n", addr, action == 3 ? "update" : "dump");
+			check_err = 1;
+		}
+	}
 	release_firmware(firmware);
 
 	/* 0x3fe02000 */
@@ -1043,23 +1068,35 @@ static int rt1320_load_dsp_fw(struct rt1320_priv *rt1320)
 		dev_err(dev, "%s request error\n", filename);
 		ret = -ENOENT;
 		goto _exit_;
-	} else {
-		dev_info(dev, "%s, size=%d\n", filename, firmware->size);
-		ret = rt1320_spi_burst_write(addr, firmware->data,
-			firmware->size);
+	}
+	dev_info(dev, "fw: %s, size=%d, dump: %s\n", filename, firmware->size, dumpfile);
+
+	if (action == 1 || action == 3) {
+		ret = rt1320_spi_burst_write(addr, firmware->data, firmware->size);
 		if (ret < 0) {
 			dev_err(dev, "%s write error\n", filename);
 			release_firmware(firmware);
 			goto _exit_;
 		}
 	}
-#ifdef DSP_FW_CHK
-	ret = rt1320_dsp_fw_cmp(rt1320, addr, firmware->data, firmware->size);
-#endif
+
+	if (action == 2 || action == 3) {
+		dumpfile = "/lib/firmware/realtek/rt1320/0x3fe02000.dump";
+		ret = rt1320_dsp_fw_check(rt1320, addr, firmware->data, firmware->size, dumpfile, action == 3);
+		if (ret) {
+			dev_err(dev, "FW of 0x%x %s failed\n", addr, action == 3 ? "update" : "dump");
+			check_err = 1;
+		}
+	}
 	release_firmware(firmware);
 
 	/* load AFX0/1 FW */
-	rt1320_afx_load(rt1320);
+	ret = rt1320_afx_load(rt1320, action);
+	if (ret) {
+		dev_err(dev, "Load AFX FW failed\n");
+		goto _exit_;
+	}
+
 #if 1
 	for (i = 0; i < 4; i++) {
 		regmap_write(regmap, 0x3fc2bfc7 - i, 0x00);
@@ -1073,13 +1110,15 @@ static int rt1320_load_dsp_fw(struct rt1320_priv *rt1320)
 	regmap_write(rt1320->regmap, 0x3fc2bfc0, 0x0b);
 	regmap_write(rt1320->regmap, 0xc081, 0xfc);
 #endif
-	printk("%s(%d) FW update end. \n", __func__, __LINE__);
+	dev_dbg(dev, "%s, FW update end.\n", __func__);
 
 	regmap_update_bits(regmap, RT1320_HIFI3_DSP_CTRL_2,
 			RT1320_HIFI3_DSP_MASK, RT1320_HIFI3_DSP_RUN);
 _exit_:
-	if (ret)
-		dev_err(dev, "%s: Load DSP FW failed\n", __func__);
+	if (ret || check_err)
+		dev_err(dev, "%s: %s DSP FW failed\n", __func__, action == 2 ? "Dump" : "Load");
+	else
+		dev_info(dev, "%s: %s DSP FW succeeded\n", __func__, action == 2 ? "Dump" : "Load");
 
 	return ret;
 }
@@ -1095,7 +1134,13 @@ static int rt1320_dsp_fw_update_put(struct snd_kcontrol *kcontrol,
 	if (!ucontrol->value.bytes.data[0])
 		return 0;
 
-	return rt1320_load_dsp_fw(rt1320);
+	/* action:
+	 * 1: write only
+	 * 2: read and dump memorys
+	 * 3: write and read compare
+	 */
+
+	return rt1320_load_dsp_fw(rt1320, ucontrol->value.bytes.data[0]);
 }
 
 static int rt1320_kR0_get(struct snd_kcontrol *kcontrol,
@@ -1375,7 +1420,7 @@ static int rt1320_component_probe(struct snd_soc_component *component)
 
 	regmap_read(rt1320->regmap, 0xc680, &val);
 
-	ret = rt1320_load_dsp_fw(rt1320);
+	ret = rt1320_load_dsp_fw(rt1320, 3);
 	if (ret)
 		printk("%s: Load DSP FW failed\n", __func__);
 

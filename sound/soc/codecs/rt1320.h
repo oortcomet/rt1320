@@ -89,5 +89,5 @@ struct rt1320_priv {
 	bool fu_mixer_mute[4];
 };
 
-int rt1320_afx_load(struct rt1320_priv *rt1320);
+int rt1320_afx_load(struct rt1320_priv *rt1320, unsigned char action);
 #endif /* __RT1320_H__ */

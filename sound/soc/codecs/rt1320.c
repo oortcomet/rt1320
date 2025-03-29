@@ -370,7 +370,7 @@ static bool rt1320_readable_register(struct device *dev, unsigned int reg)
 	case 0x1000f021:
 	case 0x3fc2ab80 ... 0x3fc2abd4:
 	case 0x3fc2bf80 ... 0x3fc2bf83:
-	case 0x3fc2bfc0 ... 0x3fc2bfc7:
+	case 0x3fc2bfc0 ... 0x3fc2bfcb:
 	case 0x3fe2e000 ... 0x3fe2e003:
 	/*
 	case 0x1000d540:
@@ -464,7 +464,7 @@ static bool rt1320_volatile_register(struct device *dev, unsigned int reg)
 	// case 0x0000c086:
 	case 0x0000c400 ... 0x0000c40b:
 	case 0x0000c560:
-	// case 0x0000c570:
+	case 0x0000c570:
 	// case 0x0000c58c:
 	// case 0x0000c58d:
 	// case 0x0000c5c2:
@@ -516,7 +516,7 @@ static bool rt1320_volatile_register(struct device *dev, unsigned int reg)
 	case 0x0000f01c ... 0x0000f01f:
 	case 0x3fc2ab80 ... 0x3fc2abd4:
 	case 0x3fc2bf80 ... 0x3fc2bf83:
-	case 0x3fc2bfc0 ... 0x3fc2bfc7:
+	case 0x3fc2bfc0 ... 0x3fc2bfcb:
 	case 0x3fe2e000 ... 0x3fe2e003:
 	case 0x41000189:
 	case 0x4100018a:
@@ -963,12 +963,13 @@ static int rt1320_load_dsp_fw(struct rt1320_priv *rt1320, unsigned char action)
 	const struct firmware *firmware;
 	char *filename = NULL;
 	char *dumpfile = NULL;
-	unsigned int addr;
+	unsigned int addr, val;
 	int ret, i, check_err = 0;
 
 	dev_dbg(dev, "-> %s\n", __func__);
 
-	regmap_update_bits(regmap, 0xf01e, 1 << 7, 0);
+	if (action == 1 || action == 3)
+		regmap_update_bits(regmap, 0xf01e, 1 << 7, 0);
 
 	/* 0x3fc000c0 */
 	addr = 0x3fc000c0;
@@ -979,7 +980,7 @@ static int rt1320_load_dsp_fw(struct rt1320_priv *rt1320, unsigned char action)
 		ret = -ENOENT;
 		goto _exit_;
 	}
-	dev_info(dev, "fw: %s, size=%d, dump: %s\n", filename, firmware->size, dumpfile);
+	dev_info(dev, "fw: %s, size=%d\n", filename, firmware->size);
 
 	if (action == 1 || action == 3) {
 		ret = rt1320_spi_burst_write(addr, firmware->data, firmware->size);
@@ -1009,7 +1010,7 @@ static int rt1320_load_dsp_fw(struct rt1320_priv *rt1320, unsigned char action)
 		ret = -ENOENT;
 		goto _exit_;
 	}
-	dev_info(dev, "fw: %s, size=%d, dump: %s\n", filename, firmware->size, dumpfile);
+	dev_info(dev, "fw: %s, size=%d\n", filename, firmware->size);
 
 	if (action == 1 || action == 3) {
 		ret = rt1320_spi_burst_write(addr, firmware->data, firmware->size);
@@ -1039,7 +1040,7 @@ static int rt1320_load_dsp_fw(struct rt1320_priv *rt1320, unsigned char action)
 		ret = -ENOENT;
 		goto _exit_;
 	}
-	dev_info(dev, "fw: %s, size=%d, dump: %s\n", filename, firmware->size, dumpfile);
+	dev_info(dev, "fw: %s, size=%d\n", filename, firmware->size);
 
 	if (action == 1 || action == 3) {
 		ret = rt1320_spi_burst_write(addr, firmware->data, firmware->size);
@@ -1069,7 +1070,7 @@ static int rt1320_load_dsp_fw(struct rt1320_priv *rt1320, unsigned char action)
 		ret = -ENOENT;
 		goto _exit_;
 	}
-	dev_info(dev, "fw: %s, size=%d, dump: %s\n", filename, firmware->size, dumpfile);
+	dev_info(dev, "fw: %s, size=%d\n", filename, firmware->size);
 
 	if (action == 1 || action == 3) {
 		ret = rt1320_spi_burst_write(addr, firmware->data, firmware->size);
@@ -1097,19 +1098,28 @@ static int rt1320_load_dsp_fw(struct rt1320_priv *rt1320, unsigned char action)
 		goto _exit_;
 	}
 
+	if (action == 2)
+		goto _exit_;
+
 #if 1
 	for (i = 0; i < 4; i++) {
+		regmap_read(regmap, 0x3fc2bfc7 - i, &val);
 		regmap_write(regmap, 0x3fc2bfc7 - i, 0x00);
+		regmap_read(regmap, 0x3fc2bfcb - i, &val);
 		regmap_write(regmap, 0x3fc2bfcb - i, 0x00);
+		regmap_read(regmap, 0x3fc2bf83 - i, &val);
 		regmap_write(regmap, 0x3fc2bf83 - i, 0x00);
 	}
 
-	for (i = 0; i < 4; i++)
+	for (i = 0; i < 4; i++) {
+		regmap_read(regmap, 0x3fc2bfc3 - i, &val);
 		regmap_write(regmap, 0x3fc2bfc3 - i, ((i == 3) ? 0x0b : 0x00) );
+	}
 #else
 	regmap_write(rt1320->regmap, 0x3fc2bfc0, 0x0b);
 	regmap_write(rt1320->regmap, 0xc081, 0xfc);
 #endif
+	regmap_write(regmap, 0x3fc2bfc0, 0x0b);
 	dev_dbg(dev, "%s, FW update end.\n", __func__);
 
 	regmap_update_bits(regmap, RT1320_HIFI3_DSP_CTRL_2,
@@ -1121,6 +1131,50 @@ _exit_:
 		dev_info(dev, "%s: %s DSP FW succeeded\n", __func__, action == 2 ? "Dump" : "Load");
 
 	return ret;
+}
+
+static void rt1320_dump_regs(struct rt1320_priv *rt1320)
+{
+	struct device *dev = regmap_get_device(rt1320->regmap);
+	struct file *fp;
+	unsigned int i, val;
+	unsigned int regs[] = {0xc044, 0xc560, 0xc570, 0x3fc2bfc1};
+	int size = ARRAY_SIZE(regs), ret;
+	loff_t pos = 0;
+	char buf[15];
+
+	dev_info(dev, "RT1320 dump registers\n");
+
+	fp = filp_open("/lib/firmware/realtek/rt1320/rt1320_regs_dump.txt", //Please modify to the correct path
+		O_WRONLY | O_CREAT, 0644);
+	if (IS_ERR(fp)) {
+		ret = PTR_ERR(fp);
+		goto file_fail;
+	}
+
+	dev_info(dev, "open file %s\n", "/lib/firmware/realtek/rt1320/rt1320_regs_dump.txt");
+
+	for (i = 0; i < size; i++) {
+		if (rt1320_readable_register(NULL, regs[i])) {
+			regmap_read(rt1320->regmap, regs[i], &val);
+			snprintf(buf, 15, "%08x: %02x", regs[i], val);
+			// dev_info(dev, "%x: %02x\n", i, val);
+			if (!IS_ERR(fp)) {
+				buf[14] = '\n';
+				ret = kernel_write(fp, &buf, 15, &pos);
+				if (ret < 0)
+					break;
+			}
+		}
+	}
+
+file_fail:
+	if (!IS_ERR(fp))
+		filp_close(fp, NULL);
+	if (ret < 0)
+		dev_err(dev, "dump registers failed: %d\n", ret);
+	else
+		dev_info(dev, "dump registers done\n");
 }
 
 static int rt1320_dsp_fw_update_put(struct snd_kcontrol *kcontrol,
@@ -1139,6 +1193,9 @@ static int rt1320_dsp_fw_update_put(struct snd_kcontrol *kcontrol,
 	 * 2: read and dump memorys
 	 * 3: write and read compare
 	 */
+
+	if (ucontrol->value.bytes.data[0] == 2)
+		rt1320_dump_regs(rt1320); // debug for get R0 fail
 
 	return rt1320_load_dsp_fw(rt1320, ucontrol->value.bytes.data[0]);
 }

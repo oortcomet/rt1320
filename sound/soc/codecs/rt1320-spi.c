@@ -33,7 +33,7 @@
 #include <sound/initval.h>
 #include <sound/tlv.h>
 
-#include "rt1320-spi.h"
+#include "rt1320-spi-3.h"
 
 static struct spi_device *rt1320_spi;
 
@@ -139,10 +139,8 @@ int rt1320_spi_burst_read(u32 addr, u8 *rxbuf, size_t len)
 
 		status = spi_sync(rt1320_spi, &message);
 
-		if (status) {
-			dev_err(&rt1320_spi->dev, "%s error %d\n", __func__, status);
-			return status;
-		}
+		if (status)
+			return false;
 
 		offset += RT1320_SPI_BUF_LEN;
 	}
@@ -164,7 +162,6 @@ int rt1320_spi_burst_write(u32 addr, const u8 *txbuf, size_t len)
 	u8 spi_cmd = RT1320_SPI_CMD_BURST_WRITE;
 	u8 *write_buf;
 	unsigned int end, offset = 0;
-	int err;
 
 	write_buf = kmalloc(RT1320_SPI_BUF_LEN + 6, GFP_KERNEL);
 
@@ -185,9 +182,7 @@ int rt1320_spi_burst_write(u32 addr, const u8 *txbuf, size_t len)
 		if (end % 8)
 			end = (end / 8 + 1) * 8;
 
-		err = spi_write(rt1320_spi, write_buf, end + 6);
-		if (err)
-			dev_err(&rt1320_spi->dev, "spi_write error %d\n", err);
+		spi_write(rt1320_spi, write_buf, end + 6);
 
 		offset += RT1320_SPI_BUF_LEN;
 	}
@@ -214,14 +209,8 @@ static int rt1320_spi_probe(struct spi_device *spi)
 	return 0;
 }
 
-static const struct spi_device_id rt1320_spi_id[] = {
-        { "rt1320", 0 },
-        { }
-};
-MODULE_DEVICE_TABLE(spi, rt5677_spi_id)
-
 static const struct of_device_id rt1320_of_match[] = {
-	{ .compatible = "realtek,rt1320", },
+	{ .compatible = "realtek,rt1320-spi", },
 	{},
 };
 MODULE_DEVICE_TABLE(of, rt1320_of_match);
@@ -232,7 +221,6 @@ static struct spi_driver rt1320_spi_driver = {
 		.of_match_table = of_match_ptr(rt1320_of_match),
 	},
 	.probe = rt1320_spi_probe,
-	.id_table = rt1320_spi_id,
 };
 module_spi_driver(rt1320_spi_driver);
 

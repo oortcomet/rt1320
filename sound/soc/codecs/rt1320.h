@@ -23,6 +23,8 @@
 #define RT1320_SPK_POST_GAIN_R_HI	0x0000dd09
 #define RT1320_SPK_POST_GAIN_L_LO	0x0000dd0a
 #define RT1320_SPK_POST_GAIN_L_HI	0x0000dd0b
+#define RT1320_CAE_R_CTRL		0x0000e824
+#define RT1320_CAE_L_CTRL		0x0000e825
 #define RT1320_HIFI3_DSP_CTRL_2		0x0000f01e
 
 /* 0xc5c3: CAE DATA Select Setting */
@@ -75,19 +77,19 @@
 #define RT1320_PDB_PIN_MNL_ON		0x1 << 0
 #define RT1320_PDB_PIN_MNL_OFF		0x0 << 0
 
-/* 0xf01e: HIFI3 DSP CTRL 2 */
-#define RT1320_HIFI3_DSP_MASK		0x1
-#define RT1320_HIFI3_DSP_STALL		0x1
-#define RT1320_HIFI3_DSP_RUN		0x0
-
 struct rt1320_priv {
 	struct snd_soc_component *component;
+	struct regmap *regmap_physical;
 	struct regmap *regmap;
+	unsigned int meanR0[2];
+	unsigned short advGain[2];
 	int version_id;
+	int calib_result; // 0: calibrate failed, 1: basic mode, 2: advance mode
+	struct delayed_work calib_work;
 	bool bypass_dsp;
 	bool fu_dapm_mute;
 	bool fu_mixer_mute[4];
+	bool fw_update;
 };
 
-int rt1320_afx_load(struct rt1320_priv *rt1320, unsigned char action);
 #endif /* __RT1320_H__ */

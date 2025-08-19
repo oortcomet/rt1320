@@ -12,7 +12,7 @@
 #ifndef __RT1320_SPI_H__
 #define __RT1320_SPI_H__
 
-#define RT1320_SPI_BUF_LEN		56 //240
+#define RT1320_SPI_BUF_LEN		56
 
 /* SPI Command */
 enum {
